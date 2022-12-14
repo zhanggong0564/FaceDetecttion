@@ -7,9 +7,8 @@ import torch.nn.functional as F
 import torch.optim
 from torch.utils.data import DataLoader
 import argparse
-import utils
 import json
-import losses
+from losses import losses
 from visdom import Visdom
 import cv2
 

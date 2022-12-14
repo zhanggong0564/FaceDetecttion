@@ -38,19 +38,19 @@ class ModelTrainer(object):
         return model
 
     @staticmethod
-    @Timer
+    # @Timer
     def train(data_loader, model, criterion, loss_meter, optimizer, cur_epoch, device, cfg, logger, ids=0):
         model.train()
         data_loader = tqdm(data_loader)
         label_list = []
         data_loader.set_description(f"Epoch{cur_epoch + 1}")
-        for batch_idx, (images, labels, _) in enumerate(data_loader):
-            label_list.extend(labels.tolist())  # 记录真实标签
+        for batch_idx, inputs in enumerate(data_loader):
+            images,_,_,_,_ = inputs
+            # label_list.extend(labels.tolist())  # 记录真实标签
             images = images.to(device)
-            labels = labels.to(device)
-            labels = labels.squeeze()
-            outputs = model.forward(images, labels)
-            loss = criterion(outputs, labels)
+            # labels = labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, inputs)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -67,7 +67,7 @@ class ModelTrainer(object):
             if (batch_idx + 1) % cfg.save_freq == 0 and batch_idx != 0 and ids == 0:
                 saved_name = "Epoch_%d_batch_%d.pt" % (cur_epoch, batch_idx)
                 state = {
-                    "state_dict": model.module.state_dict(),
+                    "state_dict": model.state_dict(),
                     # "state_dict": model.state_dict(),
                     "epoch": cur_epoch,
                 }
@@ -76,7 +76,7 @@ class ModelTrainer(object):
         if ids == 0:
             saved_name = "Epoch_%d.pt" % cur_epoch
             state = {
-                "state_dict": model.module.state_dict(),
+                "state_dict": model.state_dict(),
                 # "state_dict": model.state_dict(),
                 "epoch": cur_epoch,
                 "optimizer": optimizer.state_dict(),

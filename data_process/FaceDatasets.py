@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import torch
 import torchvision.transforms as T
+from torch.utils.data import Dataset
 
 
 def bbox_detection_augment(outwidth, outheight, mean, std):
@@ -14,13 +15,13 @@ def bbox_detection_augment(outwidth, outheight, mean, std):
         A.HorizontalFlip(),
         A.OneOf([
             A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=20, val_shift_limit=27),
-            A.RandomContrast(limit=0.8),
-            A.JpegCompression(quality_lower=5, quality_upper=100),
+            A.RandomBrightnessContrast(brightness_limit=0.8, contrast_limit=0.5),
+            A.ImageCompression(quality_lower=5, quality_upper=100),
         ]),
         A.OneOf([
             A.ISONoise(),
-            A.IAAAdditiveGaussianNoise(),
-            A.IAASharpen(),
+            A.GaussNoise(),
+            A.Sharpen(),
         ]),
         # A.OneOf([
         #     A.Cutout(num_holes=32, max_h_size=24, max_w_size=24, p=0.5),
@@ -36,12 +37,14 @@ def bbox_detection_augment(outwidth, outheight, mean, std):
             A.ToGray(),
             A.RandomGamma(gamma_limit=(0, 120), p=0.5),
         ]),
+        A.Resize(height=outheight, width=outwidth)
         # ToTensor(normalize={"mean": mean, "std": std})
     ], bbox_params=A.BboxParams("pascal_voc"))
 
 
-class Dataset:
+class CustomDateset(Dataset):
     def __init__(self, width, height, annotation, root):
+        super(CustomDateset, self).__init__()
         mean = [0.4914, 0.4822, 0.4465]
         std = [0.2023, 0.1994, 0.2010]
         self.width = width
@@ -80,40 +83,44 @@ class Dataset:
         heatmap_height = self.height // stride
         heatmap_width = self.width // stride
         point_heatmap = np.zeros((1, heatmap_height, heatmap_width), dtype=np.float32)
-        coord_heatmap = np.zeros((4, heatmap_height, heatmap_width), dtype=np.float32)
-        mask_heatmap = np.zeros((4, heatmap_height, heatmap_width), dtype=np.bool)
-
+        coord_heatmap = np.zeros((2, heatmap_height, heatmap_width), dtype=np.float32)
+        mask_heatmap = np.zeros((2, heatmap_height, heatmap_width), dtype=np.bool)
+        wh_heatmap = np.zeros((2, heatmap_height, heatmap_width), dtype=np.float32)
         for x, y, r, b, invalid in trans_out["bboxes"]:
             cx, cy = (x + r) * 0.5, (y + b) * 0.5
             box_width, box_height = (r - x + 1) / stride, (b - y + 1) / stride
-            cell_x, cell_y = int(cx / stride + 0.5), int(cy / stride + 0.5)
-            cell_x = max(0, min(cell_x, heatmap_width - 1))
-            cell_y = max(0, min(cell_y, heatmap_height - 1))
+            cell_x, cell_y = cx / stride, cy / stride
+            cell_x_i, cell_y_i = int(cx / stride + 0.5), int(cy / stride + 0.5)
+            cell_x_i = max(0, min(cell_x_i, heatmap_width - 1))
+            cell_y_i = max(0, min(cell_y_i, heatmap_height - 1))
+            offset_x = cell_x - cell_x_i
+            offset_y = cell_y - cell_y_i
 
-            common.draw_gauss(point_heatmap[0], cell_x, cell_y, (box_width, box_height))
+            common.draw_gauss(point_heatmap[0], cell_x_i, cell_y_i, (box_width, box_height))
             if not invalid:
-                coord_heatmap[:, cell_y, cell_x] = x, y, r, b
-                mask_heatmap[:, cell_y, cell_x] = True
+                coord_heatmap[:, cell_y_i, cell_x_i] = offset_x, offset_y
+                wh_heatmap[:, cell_y_i, cell_x_i] = box_width, box_height
+                mask_heatmap[:, cell_y_i, cell_x_i] = True
 
         # 如果在__getitem__返回的np.ndarray，到dataloader上，会转换为torch.tensor（不是用T.to_tensor做的）
         # bxhxwx3
-        return self.convert_to_tensor(trans_out["image"]), trans_out["image"], torch.as_tensor(
-            point_heatmap), torch.as_tensor(coord_heatmap), torch.as_tensor(mask_heatmap)
+        return self.convert_to_tensor(trans_out["image"]),torch.as_tensor(point_heatmap), torch.as_tensor(
+            coord_heatmap), torch.as_tensor(wh_heatmap),torch.as_tensor(mask_heatmap)
 
     def __len__(self):
         return len(self.images)
 
 
 if __name__ == "__main__":
-    dataset = Dataset(800, 800,
-                      "widerface/train/label.txt",
-                      "widerface/train/images")
+    dataset = CustomDateset(800, 800,
+                            "../widerface/train/label.txt",
+                            "../widerface/train/images")
 
     print(len(dataset))
-    image,image_, point, coord, mask = dataset[6857]
+    image, image_, point, coord, mask = dataset[6857]
 
     # cv2.imwrite("image.jpg", image)
-    cv2.imshow("image",image_)
+    cv2.imshow("image", image_)
     cv2.waitKey()
     cv2.destroyAllWindows()
     print(point.shape)
