@@ -56,8 +56,6 @@ class FPN(nn.Module):
         u2 = self.u2(o3)
         p1 = self.p1(x1)
         o2 = F.relu(u2 + p1)  # 4倍
-        point = self.point(o2)
-        coordinate = self.coordinate(o2)
         return o2
 class DetectHead(nn.Module):
     def __init__(self,wide):

@@ -50,7 +50,11 @@ class ModelTrainer(object):
             images = images.to(device)
             # labels = labels.to(device)
             outputs = model(images)
-            loss = criterion(outputs, inputs)
+            loss,loss1,loss2,loss3 = criterion(outputs, inputs)
+            if loss.item()==np.nan:
+                print(loss1.item())
+                print(loss2.item())
+                print(loss3.item())
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -58,7 +62,7 @@ class ModelTrainer(object):
 
             lr = ModelTrainer.get_lr(optimizer)
 
-            data_loader.set_postfix(lr=lr, loss=loss.item())
+            data_loader.set_postfix(lr=lr, loss=loss.item(),point_loss = loss1.item(),offset_loss = loss2.item(),wh_loss = loss3.item())
 
             if batch_idx % cfg.print_freq == 0 and batch_idx != 0 and ids == 0:
                 loss_avg = loss_meter.avg

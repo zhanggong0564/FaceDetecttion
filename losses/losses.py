@@ -10,9 +10,12 @@ class FocalLoss(nn.Module):
     def forward(self, predict, target):
         alpha = 2
         beta = 4
+        predict = predict.permute(0, 2, 3, 1)
+        target = target.permute(0, 2, 3, 1)
         positive_mask = target.eq(1).float()
+        neg_mask = target.lt(1).float()
         positive_loss = torch.pow((1 - predict), alpha) * torch.log(predict) * positive_mask
-        negative_loss = torch.pow((1 - target), beta) * torch.pow(predict, alpha) * torch.log(1 - predict)
+        negative_loss = torch.pow((1 - target), beta) * torch.pow(predict, alpha) * torch.log(1 - predict)*neg_mask
         N = positive_mask.sum()
         if N == 0: N = 1
         return -1 / N * (positive_loss + negative_loss).sum()
