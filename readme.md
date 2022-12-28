@@ -16,3 +16,5 @@ C++ 部分  opencv C++需要自行安装编译
 - [ ] Mixup
 - [ ] 多卡分布式训练
 - [ ] tensorrt 部署
+- [x] resnet18网络结构
+- [x] mobilenetv2网络结构
