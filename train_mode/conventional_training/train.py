@@ -15,7 +15,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 parser = argparse.ArgumentParser(description="Training")
 parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
 parser.add_argument('--bs', default=4, type=int, help='training batchsize')
-parser.add_argument('--resume', default=None, type=str, help='training resume path')
+parser.add_argument('--resume', default=True, type=str, help='training resume path')
 args = parser.parse_args()
 
 
@@ -38,7 +38,7 @@ def build_loss():
         loss1 = point_loss_function(point, point_target.cuda())
         loss2 = criterion1(offset, offset_target.cuda(),mask_heatmap.cuda())
         loss3 = criterion1(wh, wh_target.cuda(),mask_heatmap.cuda())
-        loss = loss1 + loss2 + 0.1*loss3
+        loss = loss1 + loss2 + loss3
         return loss,loss1,loss2,loss3
 
     return inner

@@ -72,7 +72,7 @@ class SoomthL1Loss(nn.Module):
         far = 1 - near
         loss = far * 0.5 * sigma2 * torch.pow(diff, 2) + near * (diff_abs - 0.5 / sigma2)
         if reduce:
-            return torch.sum(loss)/torch.sum(target>0.1)/num_object
+            return torch.sum(loss)/num_object
         return torch.sum(loss, dim=1)
 
 

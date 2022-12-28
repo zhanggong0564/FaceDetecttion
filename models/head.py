@@ -1,6 +1,7 @@
 # import resnet
 import torch.nn as nn
 import torch.nn.functional as F
+import torch
 
 
 def upmodule(in_feature, out_feature, scale=2):
@@ -58,13 +59,20 @@ class FPN(nn.Module):
         o2 = F.relu(u2 + p1)  # 4倍
         return o2
 class DetectHead(nn.Module):
-    def __init__(self,wide):
+    def __init__(self,wide,deploy=False):
         super(DetectHead,self).__init__()
         self.point = head_module(wide, 1)
         self.offset = head_module(wide, 2)
         self.coordinate = head_module(wide, 2)
+        self.deploy = deploy
     def forward(self,x):
         point = self.point(x)
         offset = self.offset(x)
         wh = self.coordinate(x)
+        if self.deploy:
+            point = point.sigmoid()
+            point = point.permute(0, 2, 3, 1).contiguous().view(-1, 1)
+            offset = offset.permute(0, 2, 3, 1).contiguous().view(-1, 2)
+            wh = wh.permute(0, 2, 3, 1).contiguous().view(-1, 2)
+            return torch.cat([point, offset, wh], -1)
         return point,offset,wh
