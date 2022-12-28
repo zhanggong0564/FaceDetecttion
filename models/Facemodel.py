@@ -1,6 +1,6 @@
 import  torch
 import torch.nn as nn
-from models.backbone import resnet18
+from models.backbone import resnet18,Mobilenetv2
 from models.head import FPN,DetectHead
 
 class FaceModel(nn.Module):
@@ -16,7 +16,7 @@ class FaceModel(nn.Module):
         out = self.head(out)
         return out
 if __name__ == '__main__':
-    backbone = resnet18()
+    backbone = Mobilenetv2()
     neck = FPN(wide=24)
     head = DetectHead(wide=24)
     model = FaceModel(backbone,neck,head)

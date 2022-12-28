@@ -2,14 +2,14 @@ from easydict import EasyDict
 cfg = EasyDict()
 cfg.image_root = "../../widerface/train/images"
 cfg.label_path = "../../widerface/train/label.txt"
-cfg.exp_log = './log'
+cfg.exp_log = './exp0'
 cfg.target_height = 800
 cfg.target_width = 800
 cfg.factor = 0.1
 cfg.milestones = [5,10]
 cfg.end_epoch = 100
 cfg.num_workers = 8
-cfg.pretrained ='./log/Epoch_35.pt'
+cfg.pretrained =None
 cfg.print_freq = 100
 cfg.save_freq = 1500
 cfg.out_dir = "./log"

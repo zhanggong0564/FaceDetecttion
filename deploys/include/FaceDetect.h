@@ -29,7 +29,7 @@ private:
     int input_height;
     float conf_threshold;
     cv::dnn::Net net;
-    void post_process(cv::Mat &heatmap,cv::Mat&heatmap_dilate,const cv::Mat& out) const;
+    void post_process(cv::Mat &heatmap,cv::Mat&heatmap_dilate,const cv::Mat& out) const;//成员变量不可以被修改
     void image_process(cv::Mat & image);
     const float mean[3] = {0.4914, 0.4822, 0.4465};
     const float stds[3] = {0.2023, 0.1994, 0.2010};

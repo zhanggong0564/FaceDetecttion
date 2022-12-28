@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models.mobilenet import mobilenet_v2
 
 def conv3x3_bn_relu(in_feature, out_feature, stride=1, relu=True, groups=1):
     modules = [
@@ -141,3 +142,27 @@ def resnext50_32x4d():
 
 def resnext101_32x8d():
     return ResNet(BottleneckBlock, [3, 4, 23, 3], groups=32, width_per_group=8)
+
+class Mobilenetv2(nn.Module):
+    def __init__(self,pretrained=True):
+        super(Mobilenetv2,self).__init__()
+        self.model = mobilenet_v2(pretrained=pretrained)
+    def forward(self,x):
+        out3 = self.model.features[:3](x)#100
+        out4 = self.model.features[3:7](out3)#50
+        out5 = self.model.features[7:14](out4)
+        out6 = self.model.features[14:18](out5)
+        return out3, out4, out5,out6
+if __name__ == '__main__':
+    '''
+    Out[1]: torch.Size([3, 64, 200, 200])
+    out[1].shape
+    Out[2]: torch.Size([3, 128, 100, 100])
+    out[2].shape
+    Out[3]: torch.Size([3, 256, 50, 50])
+    '''
+    backbone = Mobilenetv2()
+    x = torch.randn(3, 3, 800, 800)
+    y = backbone(x)
+    for i in y:
+        print(i.shape)

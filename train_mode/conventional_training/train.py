@@ -2,7 +2,7 @@ from tools.utils import *
 from tools.AverageMeter import AverageMeter
 from data_process.FaceDatasets import CustomDateset
 from torch.utils.data import DataLoader
-from models import FaceModel, resnet18, FPN, DetectHead
+from models import FaceModel, resnet18, FPN, DetectHead,Mobilenetv2
 import torch
 from tools.model_trainer import ModelTrainer
 from config.config import cfg
@@ -14,13 +14,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description="Training")
 parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
-parser.add_argument('--bs', default=4, type=int, help='training batchsize')
-parser.add_argument('--resume', default=True, type=str, help='training resume path')
+parser.add_argument('--bs', default=2, type=int, help='training batchsize')
+parser.add_argument('--resume', default=False, type=str, help='training resume path')
 args = parser.parse_args()
 
 
 def build_model(wide):
-    backbone = resnet18()
+    backbone = Mobilenetv2()
     neck = FPN(wide=wide)
     head = DetectHead(wide=wide)
     model = FaceModel(backbone, neck, head)

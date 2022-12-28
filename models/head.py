@@ -32,14 +32,14 @@ def head_module(in_feature, out_feature):
 class FPN(nn.Module):
     def __init__(self,wide):
         super(FPN, self).__init__()
-        self.u4 = upmodule(512, wide)
-        self.p3 = projection_module(256, wide)
+        self.u4 = upmodule(320, wide)
+        self.p3 = projection_module(96, wide)
 
         self.u3 = upmodule(wide, wide)
-        self.p2 = projection_module(128, wide)
+        self.p2 = projection_module(32, wide)
 
         self.u2 = upmodule(wide, wide)
-        self.p1 = projection_module(64, wide)
+        self.p1 = projection_module(24, wide)
 
         self.point = nn.Conv2d(wide, 1, kernel_size=1, padding=0, stride=1)
         self.coordinate = nn.Conv2d(wide, 4, kernel_size=1, padding=0, stride=1)
