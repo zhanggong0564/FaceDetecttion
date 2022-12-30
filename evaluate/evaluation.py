@@ -1,326 +1,149 @@
-#-*-coding:utf-8-*-
-from __future__ import division
-"""
-WiderFace evaluation code
-author: wondervictor
-mail: tianhengcheng@gmail.com
-copyright@wondervictor
-"""
-import os
-import tqdm
-import pickle
-import argparse
 import numpy as np
-from scipy.io import loadmat
-from evaluate.bbox import bbox_overlaps
-from IPython import embed
+
+class MAPTool:
+    def __init__(self,class_names):
+        self.class_names = class_names
+        self.average_precision_array = np.zeros((len(class_names), ))
+        self.map_array = np.zeros((3,))
+    def cal_map(self,groundtruth_annotations,detection_annotations,method="interp101"):
+        '''
+
+        :param groundtruth_annotations:{image_id: [[left, top, right, bottom, 0, classes_index], [left, top, right, bottom, 0, classes_index]]}
+        :param detection_annotations:{image_id: [[left, top, right, bottom, confidence, classes_index], [left, top, right, bottom, confidence, classes_index]]}
+        :param method:
+        :return:["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+        '''
+        average_precision_array = []
+        for classes in range(len(self.class_names)):
+            matched_table,sum_groundtruth = self.cal_matched_table(groundtruth_annotations,detection_annotations,classes)
+            ap_05 = self.compute_average_precision(matched_table, sum_groundtruth, 0.5,method)
+            ap_075 = self.compute_average_precision(matched_table, sum_groundtruth, 0.75,method)
+            ap_05_095 = np.mean([self.compute_average_precision(matched_table, sum_groundtruth, t,method) for t in np.arange(0.5, 1, 0.05)])
+            average_precision_array.append([ap_05, ap_075, ap_05_095])
+        self.average_precision_array = average_precision_array
+        self.map_array = np.mean(average_precision_array, axis=0)
+
+        names = ["0.5", "0.75", "0.5:0.95"]
+
+        for ap, name in zip(self.map_array, names):
+            print(f"Average Precision  (AP) @[ IoU={name:8s} | area=   all | maxDets=100 ] = {ap:.3f}")
+
+        for index, name in enumerate(self.class_names):
+            class_ap05, class_ap075, class_ap05095 = self.class_ap(index)
+            print(
+                f"Class {index:02d}[{name:11s}] mAP@.5 = {class_ap05:.3f},  mAP@.75 = {class_ap075:.3f},  mAP@.5:.95 = {class_ap05095:.3f}")
+        return self.map_array
+    def class_ap(self, class_name_or_index):
+        '''
+        # return:
+            np.array([ap@0.5, ap@0.75, ap@0.5:0.95])
+        '''
+        class_index = class_name_or_index
+        if isinstance(class_name_or_index, str):
+            class_index = self.class_names.index(class_name_or_index)
+        return self.average_precision_array[class_index]
 
 
-def get_gt_boxes(gt_dir):
-    """ gt dir: (wider_face_val.mat, wider_easy_val.mat, wider_medium_val.mat, wider_hard_val.mat)"""
+    def cal_matched_table(self,groundtruth_annotations,detection_annotations,classes):
+        max_dets = 100
+        matched_table = []
+        sum_groundtruth = 0
 
-    gt_mat = loadmat(os.path.join(gt_dir, 'wider_face_val.mat'))
-    hard_mat = loadmat(os.path.join(gt_dir, 'wider_hard_val.mat'))
-    medium_mat = loadmat(os.path.join(gt_dir, 'wider_medium_val.mat'))
-    easy_mat = loadmat(os.path.join(gt_dir, 'wider_easy_val.mat'))
+        for image_id in groundtruth_annotations:
+            select_detection = np.array(
+                list(filter(lambda x: x[5] == classes, detection_annotations[image_id])))
+            select_groundtruth = np.array(
+                list(filter(lambda x: x[5] == classes, groundtruth_annotations[image_id])))
 
-    facebox_list = gt_mat['face_bbx_list']
-    event_list = gt_mat['event_list']
-    file_list = gt_mat['file_list']
+            num_detection = len(select_detection)
+            num_groundtruth = len(select_groundtruth)
 
-    hard_gt_list = hard_mat['gt_list']
-    medium_gt_list = medium_mat['gt_list']
-    easy_gt_list = easy_mat['gt_list']
+            num_use_detection = min(num_detection, max_dets)
+            sum_groundtruth += num_groundtruth
 
-    return facebox_list, event_list, file_list, hard_gt_list, medium_gt_list, easy_gt_list
-
-
-def get_gt_boxes_from_txt(gt_path, cache_dir):
-
-    cache_file = os.path.join(cache_dir, 'gt_cache.pkl')
-    if os.path.exists(cache_file):
-        f = open(cache_file, 'rb')
-        boxes = pickle.load(f)
-        f.close()
-        return boxes
-
-    f = open(gt_path, 'r')
-    state = 0
-    lines = f.readlines()
-    lines = list(map(lambda x: x.rstrip('\r\n'), lines))
-    boxes = {}
-    f.close()
-    current_boxes = []
-    current_name = None
-    for line in lines:
-        if state == 0 and '--' in line:
-            state = 1
-            current_name = line
-            continue
-        if state == 1:
-            state = 2
-            continue
-
-        if state == 2 and '--' in line:
-            state = 1
-            boxes[current_name] = np.array(current_boxes).astype('float32')
-            current_name = line
-            current_boxes = []
-            continue
-
-        if state == 2:
-            box = [float(x) for x in line.split(' ')[:4]]
-            current_boxes.append(box)
-            continue
-
-    f = open(cache_file, 'wb')
-    pickle.dump(boxes, f)
-    f.close()
-    return boxes
-
-
-def read_pred_file(filepath):
-
-    with open(filepath, 'r') as f:
-        lines = f.readlines()
-        img_file = lines[0].rstrip('\n\r')
-        lines = lines[2:]
-
-    boxes = np.array(list(map(lambda x: [float(a) for a in x.rstrip('\r\n').split(' ')], lines))).astype('float')
-    return img_file.split('/')[-1], boxes
-
-
-def get_preds(pred_dir):
-    events = os.listdir(pred_dir)
-    boxes = dict()
-    pbar = tqdm.tqdm(events)
-
-    for event in pbar:
-        pbar.set_description('Reading Predictions ')
-        event_dir = os.path.join(pred_dir, event)
-        event_images = os.listdir(event_dir)
-        current_event = dict()
-        for imgtxt in event_images:
-            imgname, _boxes = read_pred_file(os.path.join(event_dir, imgtxt))
-            current_event[imgname.rstrip('.jpg')] = _boxes
-        boxes[event] = current_event
-    return boxes
-
-
-def norm_score(pred):
-    """ norm score
-    pred {key: [[x1,y1,x2,y2,s]]}
-    """
-
-    max_score = 0
-    min_score = 1
-
-    for _, k in pred.items():
-        for _, v in k.items():
-            if len(v) == 0:
+            if num_detection == 0:
                 continue
-            _min = np.min(v[:, -1])
-            _max = np.max(v[:, -1])
-            max_score = max(_max, max_score)
-            min_score = min(_min, min_score)
 
-    diff = max_score - min_score
-    for _, k in pred.items():
-        for _, v in k.items():
-            if len(v) == 0:
+            if len(select_groundtruth) == 0:
+                for index_of_detection in range(num_use_detection):
+                    confidence = select_detection[index_of_detection, 4]
+                    matched_table.append([confidence, 0, 0, image_id])
                 continue
-            v[:, -1] = (v[:, -1] - min_score)/diff
+
+            sgt = select_groundtruth.T.reshape(6, -1, 1)
+            sdt = select_detection.T.reshape(6, 1, -1)
+
+            # num_groundtruth x num_detection
+            groundtruth_detection_iou = self.iou(sgt, sdt)
+            for index_of_detection in range(num_use_detection):
+                confidence = select_detection[index_of_detection, 4]
+                matched_groundtruth_index = groundtruth_detection_iou[:, index_of_detection].argmax()
+                matched_iou = groundtruth_detection_iou[matched_groundtruth_index, index_of_detection]
+                matched_table.append([confidence, matched_iou, matched_groundtruth_index, image_id])
+
+        matched_table = sorted(matched_table, key=lambda x: x[0], reverse=True)
+        return matched_table,sum_groundtruth
+    def compute_average_precision(self,matched_table,sum_groundtruth,ap_threshold,method):
+        recall,precision = self.cal_recall_precision(matched_table,sum_groundtruth,ap_threshold)
+        average_precision = self.integrate_area_under_curve(precision, recall,method)
+        return average_precision
 
 
-def image_eval(pred, gt, ignore, iou_thresh):
-    """ single image evaluation
-    pred: Nx5
-    gt: Nx4
-    ignore:
-    """
-    _pred = pred.copy()
-    _gt = gt.copy()
-    pred_recall = np.zeros(_pred.shape[0])
-    recall_list = np.zeros(_gt.shape[0])
-    proposal_list = np.ones(_pred.shape[0])
+    def cal_recall_precision(self,matched_table,sum_groundtruth,threshold):
+        num_dets = len(matched_table)
+        true_positive = np.zeros((num_dets,))
 
-    _pred[:, 2] = _pred[:, 2] + _pred[:, 0]
-    _pred[:, 3] = _pred[:, 3] + _pred[:, 1]
-    _gt[:, 2] = _gt[:, 2] + _gt[:, 0]
-    _gt[:, 3] = _gt[:, 3] + _gt[:, 1]
+        groundtruth_seen_map = {item[3]: set() for item in matched_table}
+        for index, (confidence, matched_iou, matched_groundtruth_index, image_id) in enumerate(matched_table):
+            image_base_seen_map = groundtruth_seen_map[image_id]
+            if matched_iou >= threshold:
+                if matched_groundtruth_index not in image_base_seen_map:
+                    true_positive[index] = 1
+                    image_base_seen_map.add(matched_groundtruth_index)
 
-    overlaps = bbox_overlaps(_pred[:, :4], _gt)
+        num_predicts = np.arange(1, len(true_positive) + 1)
+        accumulate_true_positive = np.cumsum(true_positive)
+        precision = accumulate_true_positive / num_predicts
+        recall = accumulate_true_positive / sum_groundtruth
+        return recall,precision
+    def integrate_area_under_curve(self,precision, recall,method):
+        mrec = np.concatenate(([0.], recall, [min(recall[-1] + 1E-3, 1.)]))
+        mpre = np.concatenate(([0.], precision, [0.]))
 
-    for h in range(_pred.shape[0]):
+        # Compute the precision envelope
+        mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
 
-        gt_overlap = overlaps[h]
-        max_overlap, max_idx = gt_overlap.max(), gt_overlap.argmax()
-        if max_overlap >= iou_thresh:
-            if ignore[max_idx] == 0:
-                recall_list[max_idx] = -1
-                proposal_list[h] = -1
-            elif recall_list[max_idx] == 0:
-                recall_list[max_idx] = 1
-
-        r_keep_index = np.where(recall_list == 1)[0]
-        pred_recall[h] = len(r_keep_index)
-    return pred_recall, proposal_list
-
-
-def img_pr_info(thresh_num, pred_info, proposal_list, pred_recall):
-    pr_info = np.zeros((thresh_num, 2)).astype('float')
-    for t in range(thresh_num):
-
-        thresh = 1 - (t+1)/thresh_num
-        r_index = np.where(pred_info[:, 4] >= thresh)[0]
-        if len(r_index) == 0:
-            pr_info[t, 0] = 0
-            pr_info[t, 1] = 0
-        else:
-            r_index = r_index[-1]
-            p_index = np.where(proposal_list[:r_index+1] == 1)[0]
-            pr_info[t, 0] = len(p_index)
-            pr_info[t, 1] = pred_recall[r_index]
-    return pr_info
+        # Integrate area under curve
+        if method == 'interp101':
+            x = np.linspace(0, 1, 101)  # 101-point interp (COCO)
+            # ap = np.trapz(np.interp(x, mrec, mpre), x)  # integrate，梯度积分，https://blog.csdn.net/weixin_44338705/article/details/89203791
+            ap = np.mean(np.interp(x, mrec, mpre))  # integrate，直接取均值，论文上都这么做的
+        elif method == 'interp11':
+            x = np.linspace(0, 1, 11)  # 11-point interp (VOC2007)
+            ap = np.mean(np.interp(x, mrec, mpre))  # integrate，直接取均值，论文上都这么做的
+        else:  # 'continuous'
+            i = np.where(mrec[1:] != mrec[:-1])[0]  # points where x axis (recall) changes (VOC2012)
+            ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
+        return ap
 
 
-def dataset_pr_info(thresh_num, pr_curve, count_face):
-    _pr_curve = np.zeros((thresh_num, 2))
-    for i in range(thresh_num):
-        _pr_curve[i, 0] = pr_curve[i, 1] / pr_curve[i, 0]
-        _pr_curve[i, 1] = pr_curve[i, 1] / count_face
-    return _pr_curve
+    def iou(self, a, b):
+        aleft, atop, aright, abottom = [a[i] for i in range(4)]
+        awidth = aright - aleft + 1
+        aheight = abottom - atop + 1
+
+        bleft, btop, bright, bbottom = [b[i] for i in range(4)]
+        bwidth = bright - bleft + 1
+        bheight = bbottom - btop + 1
+
+        cleft = np.maximum(aleft, bleft)
+        ctop = np.maximum(atop, btop)
+        cright = np.minimum(aright, bright)
+        cbottom = np.minimum(abottom, bbottom)
+        cross_area = (cright - cleft + 1).clip(0) * (cbottom - ctop + 1).clip(0)
+        union_area = awidth * aheight + bwidth * bheight - cross_area
+        return cross_area / union_area
 
 
-def voc_ap(rec, prec):
 
-    # correct AP calculation
-    # first append sentinel values at the end
-    mrec = np.concatenate(([0.], rec, [1.]))
-    mpre = np.concatenate(([0.], prec, [0.]))
-
-    # compute the precision envelope
-    for i in range(mpre.size - 1, 0, -1):
-        mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
-
-    # to calculate area under PR curve, look for points
-    # where X axis (recall) changes value
-    i = np.where(mrec[1:] != mrec[:-1])[0]
-
-    # and sum (\Delta recall) * prec
-    ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
-    return ap
-
-
-def eval_map(pred, all, iou_thresh=0.5, gt_path="evaluate/ground_truth"):
-    norm_score(pred)
-    facebox_list, event_list, file_list, hard_gt_list, medium_gt_list, easy_gt_list = get_gt_boxes(gt_path)
-    event_num = len(event_list)
-    thresh_num = 1000
-    settings = ['easy', 'medium', 'hard']
-    setting_gts = [easy_gt_list, medium_gt_list, hard_gt_list]
-    
-    if not all:
-        aps = []
-        for setting_id in range(3):
-            # different setting
-            gt_list = setting_gts[setting_id]
-            count_face = 0
-            pr_curve = np.zeros((thresh_num, 2)).astype('float')
-            # [hard, medium, easy]
-            pbar = tqdm.tqdm(range(event_num))  #  61
-            error_count = 0
-            for i in pbar:
-                pbar.set_description('Processing {}'.format(settings[setting_id]))
-                event_name = str(event_list[i][0][0])
-                img_list = file_list[i][0]
-
-                pred_list = pred[event_name]  
-                sub_gt_list = gt_list[i][0]
-                print("shape of sub_gt_list is: ",sub_gt_list.shape)
-                gt_bbx_list = facebox_list[i][0]
-
-                for j in range(len(img_list)):
-                    try:
-                        pred_info = pred_list[str(img_list[j][0][0])] 
-                    except:
-                        error_count+=1
-                        continue
-
-                    gt_boxes = gt_bbx_list[j][0].astype('float')
-                    keep_index = sub_gt_list[j][0]
-                    count_face += len(keep_index)
-                    if len(gt_boxes) == 0 or len(pred_info) == 0:
-                        continue
-                    ignore = np.zeros(gt_boxes.shape[0])
-                    if len(keep_index) != 0:
-                        ignore[keep_index-1] = 1
-                    pred_recall, proposal_list = image_eval(pred_info, gt_boxes, ignore, iou_thresh)
-
-                    _img_pr_info = img_pr_info(thresh_num, pred_info, proposal_list, pred_recall)
-
-                    pr_curve += _img_pr_info
-            print("error_count is: ",error_count)
-            pr_curve = dataset_pr_info(thresh_num, pr_curve, count_face)
-
-            propose = pr_curve[:, 0]
-            recall = pr_curve[:, 1]
-
-            ap = voc_ap(recall, propose)
-            aps.append(ap)
-        return aps
-    else:
-        aps = []
-        # different setting
-        count_face = 0
-        pr_curve = np.zeros((thresh_num, 2)).astype('float')  #  control calcultate how many samples
-        # [hard, medium, easy]
-        pbar = tqdm.tqdm(range(event_num))
-        error_count = 0
-        for i in pbar:
-            pbar.set_description('Processing {}'.format("all"))
-            # print("event_list is: ",event_list)
-            event_name = str(event_list[i][0][0])  #  '0--Parade', '1--Handshaking'
-            img_list = file_list[i][0]
-            pred_list = pred[event_name]  #  每个文件夹的所有检测结果
-            sub_gt_list = [ setting_gts[0][i][0], setting_gts[1][i][0], setting_gts[2][i][0] ]
-
-            gt_bbx_list = facebox_list[i][0]
-            for j in range(len(img_list)):
-                try:
-                    pred_info = pred_list[str(img_list[j][0][0])]  #   # str(img_list[j][0][0] 是每个folder下面的图片名字
-                except:
-                    error_count+=1
-                    continue
-
-                gt_boxes = gt_bbx_list[j][0].astype('float')
-                temp_i = []
-                for ii in range(3):
-                    if len(sub_gt_list[ii][j][0])!=0:
-                        temp_i.append(ii)
-                if len(temp_i)!=0:
-                    keep_index = np.concatenate(tuple([sub_gt_list[xx][j][0] for xx in temp_i]))
-                else:
-                    keep_index = []
-                count_face += len(keep_index)
-
-                if len(gt_boxes) == 0 or len(pred_info) == 0:
-                    continue
-                ignore = np.zeros(gt_boxes.shape[0]) # #  no ignore
-                if len(keep_index) != 0:
-                    ignore[keep_index-1] = 1
-                pred_recall, proposal_list = image_eval(pred_info, gt_boxes, ignore, iou_thresh)
-
-                _img_pr_info = img_pr_info(thresh_num, pred_info, proposal_list, pred_recall)
-
-                pr_curve += _img_pr_info
-
-        pr_curve = dataset_pr_info(thresh_num, pr_curve, count_face)
-
-        propose = pr_curve[:, 0]
-        recall = pr_curve[:, 1]
-
-        ap = voc_ap(recall, propose)
-        aps.append(ap)
-        return aps        
 
